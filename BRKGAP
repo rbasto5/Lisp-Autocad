@@ -1,0 +1,66 @@
+(defun c:BRKGAP (/ ent obj pt_int dist_int dist1 dist2 len pt_b1 pt_b2 osnap_atual dist_temp)
+  (vl-load-com)
+  (setvar "CMDECHO" 0)
+
+  ;; 1. Configura o tamanho do gap
+  (if (not *dist_gap_global*) (setq *dist_gap_global* 0.10))
+  (setq dist_temp (getdist (strcat "\nDigite o tamanho total do espaco/gap <" (rtos *dist_gap_global* 2 2) ">: ")))
+  (if dist_temp (setq *dist_gap_global* dist_temp))
+
+  ;; 2. Seleciona a linha principal
+  (setq ent (entsel "\n1. Selecione a linha que SERA CORTADA (ficara com o buraco): "))
+  (if ent
+    (progn
+      (setq obj (vlax-ename->vla-object (car ent)))
+      
+      ;; 3. Força o OSNAP para "Intersection" / "Apparent Intersection"
+      (setq osnap_atual (getvar "OSMODE"))
+      (setvar "OSMODE" 2080) 
+
+      (setq pt_int (getpoint "\n2. Clique exatamente no PONTO DE CRUZAMENTO das linhas: "))
+      
+      (setvar "OSMODE" osnap_atual) 
+
+      (if pt_int
+        (progn
+          (setq pt_int (vlax-curve-getClosestPointTo obj pt_int))
+          
+          (if (setq dist_int (vlax-curve-getDistAtPoint obj pt_int))
+            (progn
+              (setq len (vlax-curve-getDistAtParam obj (vlax-curve-getEndParam obj)))
+
+              ;; 4. Calcula os pontos de corte
+              (setq dist1 (- dist_int (/ *dist_gap_global* 2.0)))
+              (setq dist2 (+ dist_int (/ *dist_gap_global* 2.0)))
+
+              (if (< dist1 0.0) (setq dist1 0.0))
+              (if (> dist2 len) (setq dist2 len))
+
+              (setq pt_b1 (vlax-curve-getPointAtDist obj dist1))
+              (setq pt_b2 (vlax-curve-getPointAtDist obj dist2))
+
+              (if (and pt_b1 pt_b2)
+                (progn
+                  (setq osnap_atual (getvar "OSMODE"))
+                  (setvar "OSMODE" 0)
+                  
+                  ;; 5. O TRUQUE DEFINITIVO: Passa a entidade e o primeiro ponto juntos numa lista
+                  ;; Isso pula a pergunta "specify first break point" e força o CAD a cortar direto
+                  (command "._BREAK" (list (car ent) pt_b1) pt_b2)
+                  
+                  (setvar "OSMODE" osnap_atual)
+                  (princ "\nGap criado com sucesso no cruzamento.")
+                )
+                (princ "\nErro: Nao foi possivel calcular o corte.")
+              )
+            )
+            (princ "\nErro: Ponto fora da linha. Certifique-se de clicar no cruzamento.")
+          )
+        )
+        (princ "\nPonto nao selecionado.")
+      )
+    )
+    (princ "\nLinha nao selecionada.")
+  )
+  (princ)
+)
