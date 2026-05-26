@@ -1,0 +1,102 @@
+(defun c:GIPL (/ val_gi declividade ent ent_data pts pt_atual pt_prox dist val_gi_novo texto ss_textos)
+  (setvar "CMDECHO" 0)
+
+  ;; Garante que a Layer exista
+  (if (not (tblsearch "LAYER" "D-HID-AUX-DES-TXT"))
+    (command "_.-LAYER" "_Make" "D-HID-AUX-DES-TXT" "")
+  )
+
+  ;; Inicializa o grupo de selecao para o _escalar
+  (setq ss_textos (ssadd))
+
+  (setq val_gi (getreal "\nDigite o valor da GI (Cota Inicial): "))
+  (setq declividade (getreal "\nDigite a inclinacao em porcentagem [%] (ex: -1 para descida de 1%): "))
+
+  (setq ent (car (entsel "\nSelecione a Polyline do trecho: ")))
+
+  (if ent
+    (progn
+      (setq ent_data (entget ent))
+      
+      (if (= (cdr (assoc 0 ent_data)) "LWPOLYLINE")
+        (progn
+          ;; Extrai os vertices da Polyline
+          (setq pts (mapcar 'cdr (vl-remove-if-not '(lambda (x) (= (car x) 10)) ent_data)))
+
+          (if (> (length pts) 1)
+            (progn
+              (setq pt_atual (car pts))
+              (setq texto (strcat "GI.: " (rtos val_gi 2 2)))
+              
+              ;; Insere MTEXT no primeiro vertice
+              (entmake
+                (list
+                  '(0 . "MTEXT")
+                  '(100 . "AcDbEntity")
+                  '(8 . "D-HID-AUX-DES-TXT")       ;; Layer corrigido
+                  '(100 . "AcDbMText")
+                  (cons 10 pt_atual)
+                  (cons 40 (getvar "TEXTSIZE"))
+                  (cons 1 texto)
+                  '(7 . "18")
+                  '(71 . 1)
+                  '(90 . 19)
+                  '(45 . 1.15)
+                )
+              )
+              
+              (ssadd (entlast) ss_textos)
+
+              (setq pts (cdr pts))
+
+              ;; Percorre os demais vertices
+              (foreach pt_prox pts
+                (setq dist (distance (list (car pt_atual) (cadr pt_atual) 0.0) 
+                                     (list (car pt_prox) (cadr pt_prox) 0.0)))
+                (setq val_gi_novo (+ val_gi (* dist (/ declividade 100.0))))
+                (setq texto (strcat "GI.: " (rtos val_gi_novo 2 2)))
+
+                ;; Insere MTEXT nos proximos vertices
+                (entmake
+                  (list
+                    '(0 . "MTEXT")
+                    '(100 . "AcDbEntity")
+                    '(8 . "D-HID-AUX-DES-TXT")     ;; Layer corrigido
+                    '(100 . "AcDbMText")
+                    (cons 10 pt_prox)
+                    (cons 40 (getvar "TEXTSIZE"))
+                    (cons 1 texto)
+                    '(7 . "18")
+                    '(71 . 1)
+                    '(90 . 19)
+                    '(45 . 1.15)
+                  )
+                )
+
+                (ssadd (entlast) ss_textos)
+
+                (setq pt_atual pt_prox)
+                (setq val_gi val_gi_novo)
+              )
+              
+              (princ "\nCotas inseridas com sucesso em todos os vertices.")
+            )
+            (princ "\nA polyline selecionada precisa ter pelo menos 2 pontos.")
+          )
+        )
+        (princ "\nErro: O objeto selecionado nao e uma Polyline.")
+      )
+    )
+    (princ "\nNenhum objeto selecionado.")
+  )
+
+  ;; Executa a selecao e o comando LISP c:escalar no final
+  (if (> (sslength ss_textos) 0)
+    (progn
+      (sssetfirst nil ss_textos)
+      (c:escalar) ;; Chamada corrigida para a LISP externa
+    )
+  )
+
+  (princ)
+)
