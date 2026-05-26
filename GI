@@ -1,0 +1,97 @@
+(defun c:GI (/ val_gi declividade pt_atual pt_prox dist val_gi_novo texto ss_textos)
+  ;; Desativa o echo dos comandos
+  (setvar "CMDECHO" 0)
+
+  ;; 1. Garante que a Layer solicitada exista no desenho
+  (if (not (tblsearch "LAYER" "D-HID-AUX-DES-TXT"))
+    (command "_.-LAYER" "_Make" "D-HID-AUX-DES-TXT" "")
+  )
+
+  ;; Inicializa um grupo de selecao vazio para guardar os textos criados
+  (setq ss_textos (ssadd))
+
+  ;; 2. Solicita os valores iniciais
+  (setq val_gi (getreal "\nDigite o valor da GI (Cota Inicial): "))
+  (setq declividade (getreal "\nDigite a inclinacao em porcentagem [%] (ex: -1 para descida de 1%): "))
+
+  ;; 3. Solicita o primeiro clique
+  (setq pt_atual (getpoint "\nClique no local de insercao da GI inicial: "))
+
+  (if pt_atual
+    (progn
+      ;; Adiciona o prefixo "GI.: " antes do valor inicial
+      (setq texto (strcat "GI.: " (rtos val_gi 2 2)))
+      
+      ;; Insere o primeiro MTEXT com as configuracoes solicitadas
+      (entmake
+        (list
+          '(0 . "MTEXT")
+          '(100 . "AcDbEntity")
+          '(8 . "D-HID-AUX-DES-TXT")       ;; Layer corrigido
+          '(100 . "AcDbMText")
+          (cons 10 pt_atual)               ;; Ponto de insercao
+          (cons 40 (getvar "TEXTSIZE"))    ;; Altura do texto
+          (cons 1 texto)                   ;; Valor da GI (com prefixo)
+          '(7 . "18")                      ;; Text Style
+          '(71 . 1)                        ;; Alinhamento: Top Left
+          '(90 . 19)                       ;; Magica: Mascara + Fundo + Frame
+          '(45 . 1.15)                     ;; Margem do Background Mask
+        )
+      )
+      
+      ;; Adiciona o texto recem-criado ao nosso grupo de selecao
+      (ssadd (entlast) ss_textos)
+
+      ;; 4. Laco de repeticao para os proximos pontos
+      (while (setq pt_prox (getpoint pt_atual "\nClique no proximo ponto (ou pressione Enter/Espaco para finalizar): "))
+        
+        ;; Calcula a distancia e a nova GI
+        (setq dist (distance (list (car pt_atual) (cadr pt_atual) 0.0) 
+                             (list (car pt_prox) (cadr pt_prox) 0.0)))
+        (setq val_gi_novo (+ val_gi (* dist (/ declividade 100.0))))
+        
+        ;; Adiciona o prefixo "GI.: " nas proximas cotas
+        (setq texto (strcat "GI.: " (rtos val_gi_novo 2 2)))
+
+        ;; Insere o proximo MTEXT
+        (entmake
+          (list
+            '(0 . "MTEXT")
+            '(100 . "AcDbEntity")
+            '(8 . "D-HID-AUX-DES-TXT")     ;; Layer corrigido
+            '(100 . "AcDbMText")
+            (cons 10 pt_prox)
+            (cons 40 (getvar "TEXTSIZE"))
+            (cons 1 texto)
+            '(7 . "18")
+            '(71 . 1)
+            '(90 . 19)
+            '(45 . 1.15)
+          )
+        )
+
+        ;; Adiciona este novo texto ao nosso grupo de selecao
+        (ssadd (entlast) ss_textos)
+
+        (princ (strcat "\nTrecho: " (rtos dist 2 2) " | Nova GI inserida: " (rtos val_gi_novo 2 2)))
+        
+        ;; Atualiza as variaveis
+        (setq pt_atual pt_prox)
+        (setq val_gi val_gi_novo)
+      )
+      
+      (princ "\nLancamento de rede finalizado.")
+    )
+    (princ "\nComando cancelado no primeiro ponto.")
+  )
+  
+  ;; 5. Executa a selecao e o comando LISP c:escalar
+  (if (> (sslength ss_textos) 0)
+    (progn
+      (sssetfirst nil ss_textos)
+      (c:escalar) ;; Chamada corrigida para a LISP externa
+    )
+  )
+  
+  (princ)
+)
