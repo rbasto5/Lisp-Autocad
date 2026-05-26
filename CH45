@@ -1,0 +1,73 @@
+(defun c:CH45 (/ ent1 ent2 dist_atual dist trim_atual pedit_atual fillet_atual last_obj chamfer_line ed p1 p2 pm sel_chamfer)
+  (setvar "CMDECHO" 0)
+
+  ;; 1. Salva as configurações originais do seu AutoCAD
+  (setq trim_atual (getvar "TRIMMODE"))
+  (setq dist_atual (getvar "CHAMFERA"))
+  (setq pedit_atual (getvar "PEDITACCEPT"))
+  (setq fillet_atual (getvar "FILLETRAD"))
+
+  ;; 2. Solicita a distância do chanfro
+  (setq dist (getdist (strcat "\nDigite a distancia do chanfro <" (rtos dist_atual 2 2) ">: ")))
+  (if (null dist) (setq dist dist_atual))
+  
+  (setvar "CHAMFERA" dist)
+  (setvar "CHAMFERB" dist)
+
+  ;; 3. Seleção dos tubos
+  (setq ent1 (entsel "\n1. Selecione o RAMAL (clique na parte do tubo que VAI FICAR na rede): "))
+  (if ent1
+    (progn
+      (setq ent2 (entsel "\n2. Selecione o COLETOR PRINCIPAL (passará reto/intacto): "))
+      (if ent2
+        (progn
+          ;; Memoriza qual foi a última linha desenhada no CAD antes de rodar o comando
+          (setq last_obj (entlast)) 
+
+          ;; 4. Cria a linha de 45 graus SEM cortar ninguém (Proteção total do Coletor)
+          (setvar "TRIMMODE" 0)
+          (command "._CHAMFER" ent1 ent2)
+
+          ;; Verifica se o chanfro realmente funcionou e gerou uma linha nova
+          (if (not (equal last_obj (entlast)))
+            (progn
+              (setq chamfer_line (entlast))
+
+              ;; 5. Corta a rebarba do Ramal
+              ;; Liga o TRIM e prepara o Fillet R=0 para aparar o ramal rente ao chanfro
+              (setvar "TRIMMODE" 1)
+              (setvar "FILLETRAD" 0.0)
+
+              ;; Pega o ponto médio da linha de 45º para servir de "clique" no Fillet
+              (setq ed (entget chamfer_line))
+              (setq p1 (cdr (assoc 10 ed)))
+              (setq p2 (cdr (assoc 11 ed)))
+              (setq pm (list (/ (+ (car p1) (car p2)) 2.0)
+                             (/ (+ (cadr p1) (cadr p2)) 2.0)
+                             (/ (+ (caddr p1) (caddr p2)) 2.0)))
+              (setq sel_chamfer (list chamfer_line pm))
+
+              ;; Executa o corte exato do Ramal
+              (command "._FILLET" ent1 sel_chamfer)
+
+              ;; 6. Une o Ramal limpo com a linha de 45 graus virando Polyline
+              (setvar "PEDITACCEPT" 1)
+              (command "._PEDIT" (car ent1) "J" chamfer_line "" "")
+
+              (princ "\nSucesso! Ramal aparado e unido. Coletor mantido 100% intacto.")
+            )
+            (princ "\nErro: Chanfro nao gerado. Verifique as linhas e a distância.")
+          )
+        )
+        (princ "\nColetor não selecionado.")
+      )
+    )
+    (princ "\nRamal não selecionado.")
+  )
+
+  ;; 7. Devolve as configurações originais ao AutoCAD
+  (setvar "TRIMMODE" trim_atual)
+  (setvar "PEDITACCEPT" pedit_atual)
+  (setvar "FILLETRAD" fillet_atual)
+  (princ)
+)
