@@ -1,0 +1,53 @@
+(defun c:ORGXREF (/ ss i ent obj blk_name blk_data flag)
+  (vl-load-com)
+  (setvar "CMDECHO" 0)
+
+  ;; 1. Cria a layer "Referencia" ou destranca temporariamente se ja existir
+  (if (not (tblsearch "LAYER" "Referencia"))
+    (command "_.-LAYER" "_Make" "Referencia" "")
+    (command "_.-LAYER" "_Unlock" "Referencia" "")
+  )
+
+  ;; 2. Seleciona todos os blocos e referências no desenho
+  (setq ss (ssget "X" '((0 . "INSERT"))))
+
+  (if ss
+    (progn
+      (setq i 0)
+      (while (< i (sslength ss))
+        (setq ent (ssname ss i))
+        (setq blk_name (cdr (assoc 2 (entget ent))))
+        (setq blk_data (tblsearch "BLOCK" blk_name))
+
+        (if blk_data
+          (progn
+            ;; Extrai a propriedade que define se é XREF
+            (setq flag (cdr (assoc 70 blk_data)))
+            
+            ;; 3. Verifica se o elemento é realmente um XREF
+            (if (= (logand flag 4) 4)
+              (progn
+                ;; 4. NOVA REGRA: Ignora se o nome contiver ALI, ELE ou HID em QUALQUER parte
+                (if (not (wcmatch (strcase blk_name) "*ALI*,*ELE*,*HID*"))
+                  (progn
+                    (setq obj (vlax-ename->vla-object ent))
+                    
+                    ;; Move o XREF para a layer "Referencia"
+                    (vl-catch-all-apply 'vla-put-Layer (list obj "Referencia"))
+                  )
+                )
+              )
+            )
+          )
+        )
+        (setq i (1+ i))
+      )
+    )
+  )
+
+  ;; 5. Tranca a layer "Referencia"
+  (command "_.-LAYER" "_Lock" "Referencia" "")
+
+  (princ "\nLimpeza concluida: XREFs organizados e trancados (Excecoes aplicadas: ALI, ELE, HID).")
+  (princ)
+)
