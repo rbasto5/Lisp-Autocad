@@ -1,0 +1,140 @@
+;; Carrega as extensoes do Visual LISP
+(vl-load-com)
+
+(defun c:TAGCG ( / num_cx str_search xlApp xlCells row found cell val str_val 
+                   get-cell-real num2str dim1 dim2 h_util ct na cf h_total 
+                   texto_final pt_atual text_height estilo)
+  
+  ;; 1. Solicita o numero da caixa
+  (setq num_cx (getstring "\nDigite o numero da caixa (ex: 3 ou 03): "))
+  (if (or (= num_cx "") (not num_cx))
+    (exit)
+  )
+
+  ;; Formata a busca (garante que tenha 2 digitos, ex: "03")
+  (setq str_search (if (< (atoi num_cx) 10) 
+                     (strcat "0" (itoa (atoi num_cx))) 
+                     (itoa (atoi num_cx))
+                   )
+  )
+
+  ;; 2. Conecta ao Excel aberto
+  (setq xlApp (vlax-get-object "Excel.Application"))
+  (if (not xlApp)
+    (progn
+      (alert "O Excel precisa estar aberto com a planilha do projeto ativa!")
+      (exit)
+    )
+  )
+  
+  ;; Captura as celulas da planilha ativa
+  (setq xlCells (vlax-get-property (vlax-get-property xlApp 'ActiveSheet) 'Cells))
+
+  ;; 3. Busca a linha correspondente na Coluna W (Coluna 23)
+  (setq row 10) ;; Comeca a varredura a partir da linha 10
+  (setq found nil)
+  (while (and (<= row 200) (not found))
+    
+    ;; CORREÇÃO: Acessando 'Item' como Propriedade e nao como Metodo
+    (setq cell (vlax-variant-value (vlax-get-property xlCells 'Item row 23)))
+    (setq val (vlax-variant-value (vlax-get-property cell 'Value)))
+    
+    (if val
+      (progn
+        (setq str_val (vl-princ-to-string val))
+        ;; Se achar o numero "03" dentro do texto da celula
+        (if (vl-string-search str_search str_val)
+          (setq found row)
+        )
+      )
+    )
+    (setq row (1+ row))
+  )
+
+  ;; Se nao encontrou a caixa, avisa e cancela
+  (if (not found)
+    (progn
+      (alert (strcat "Caixa " str_search " nao encontrada na Coluna W da planilha."))
+      (exit)
+    )
+  )
+
+  ;; 4. Funcoes auxiliares de leitura e formatacao
+  (defun get-cell-real (r c / cell_obj cell_val)
+    ;; CORREÇÃO NA FUNÇÃO DE LEITURA
+    (setq cell_obj (vlax-variant-value (vlax-get-property xlCells 'Item r c)))
+    (setq cell_val (vlax-variant-value (vlax-get-property cell_obj 'Value)))
+    (cond
+      ((= (type cell_val) 'REAL) cell_val)
+      ((= (type cell_val) 'INT) (float cell_val))
+      ((= (type cell_val) 'STR) (atof (vl-string-translate "," "." cell_val)))
+      (t 0.0)
+    )
+  )
+
+  (defun num2str (num dec)
+    (vl-string-translate "." "," (rtos num 2 dec))
+  )
+
+  ;; 5. Leitura dos dados exatos
+  ;; S=19(Compr), T=20(Largura), U=21(H.Util), Y=25(CT), AA=27(NA), AB=28(CF), AC=29(HTotal)
+  (setq dim1 (rtos (* (get-cell-real found 19) 100) 2 0))
+  (setq dim2 (rtos (* (get-cell-real found 20) 100) 2 0))
+  (setq h_util (num2str (get-cell-real found 21) 2))
+  (setq ct (num2str (get-cell-real found 25) 2))
+  (setq na (num2str (get-cell-real found 27) 2))
+  (setq cf (num2str (get-cell-real found 28) 2))
+  (setq h_total (num2str (get-cell-real found 29) 2))
+
+  ;; 6. Montagem do MTEXT com as quebras de linha (\P)
+  (setq texto_final 
+    (strcat 
+      "CX- GOR-" str_search "\\P"
+      "DIM.: " dim1 "x" dim2 "cm\\P"
+      "C.T.: " ct "\\P"
+      "C.F.: " cf "\\P"
+      "NA: " na "\\P"
+      "H. ÚTIL: " h_util "m\\P"
+      "H. TOTAL: " h_total "m"
+    )
+  )
+
+  ;; 7. Insercao do MTEXT formatado no CAD
+  (setq pt_atual (getpoint (strcat "\nClique no ponto para inserir a tag da CX-GOR-" str_search ": ")))
+  (if pt_atual
+    (progn
+      ;; Verifica e cria layer se necessario
+      (if (not (tblsearch "LAYER" "D-HID-AUX-DES-TXT"))
+        (command "_.-LAYER" "_Make" "D-HID-AUX-DES-TXT" "")
+      )
+      
+      ;; Extrai a altura correta do Style "18"
+      (setq text_height (getvar "TEXTSIZE"))
+      (if (setq estilo (tblsearch "STYLE" "18"))
+        (if (> (cdr (assoc 40 estilo)) 0.0)
+          (setq text_height (cdr (assoc 40 estilo)))
+        )
+      )
+
+      ;; Insere o Texto no banco de dados
+      (entmake
+        (list
+          '(0 . "MTEXT")
+          '(100 . "AcDbEntity")
+          '(8 . "D-HID-AUX-DES-TXT")
+          '(100 . "AcDbMText")
+          (cons 10 pt_atual)
+          (cons 40 text_height)
+          (cons 1 texto_final)
+          '(7 . "18")
+          '(71 . 1)
+          '(90 . 19)
+          '(45 . 1.15)
+        )
+      )
+      (princ (strcat "\nTag da CX-GOR-" str_search " inserida com sucesso!"))
+    )
+    (princ "\nComando cancelado.")
+  )
+  (princ)
+)
